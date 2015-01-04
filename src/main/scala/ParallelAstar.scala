@@ -1,7 +1,4 @@
 import akka.actor._
-
-//import akka.pattern.ask
-
 import akka.pattern.ask
 import akka.util.Timeout
 
@@ -15,38 +12,25 @@ import scalax.collection.edge.Implicits._
 
 object Implicit {
   val atMost = 5 seconds
-  implicit val timeout = Timeout(atMost)
+  implicit val timeout = Timeout(5 seconds)
   implicit val ec = ExecutionContext.Implicits.global
 }
 
-object Commons {
-  val graph = Graph(
-    1 ~> 2 % 1, 1 ~> 3 % 2,
-    2 ~> 5 % 3, 2 ~> 7 % 4,
-    3 ~> 2 % 1, 3 ~> 4 % 4,
-    4 ~> 6 % 2,
-    5 ~> 3 % 3, 5 ~> 7 % 1,
-    6 ~> 5 % 5, 6 ~> 8 % 2, 6 ~> 9 % 1,
-    7 ~> 8 % 3,
-    8 ~> 5 % 1, 8 ~> 9 % 6
-  )
-  val system = ActorSystem("astar")
-  val nodes = system.actorOf(Props[Nodes], "nodes")
-}
+case object StartNode
+
+case object NextNode
+
+case class ProposePrev(cost: Long, prev: Int)
+
+case object NodeDone
 
 object SearchNode {
   def props(label: Int) = Props(new SearchNode(label))
 }
 
-case object Start
+class SearchNode(val label: Int) extends Actor with ActorLogging {
 
-case object YouGoNext
-
-case class ProposePrev(cost: Long, prev: Int)
-
-class SearchNode(val label: Int) extends Actor {
-
-  import Commons._
+  import AstarAlgorithm._
   import Implicit._
 
   var cost: Option[Long] = None
@@ -60,20 +44,30 @@ class SearchNode(val label: Int) extends Actor {
   }
 
   def receive = {
-    case Start =>
-      cost = Some(0L)
-    case YouGoNext =>
+    case StartNode =>
+      setStart()
+      sender ! NodeDone
+    case NextNode =>
       proposePrev()
+      sender ! NodeDone
     case ProposePrev(c, p) =>
       considerPrev(c, p)
+      sender ! NodeDone
+  }
+
+  def setStart() {
+    cost = Some(0L)
+    open ! OpenNode(label, 0L)
   }
 
   def proposePrev() {
-    println("(" + label + ") I'm next")
-    cost match {
-      case Some(c) => neighbours.foreach(n => n ! ProposePrev(c, label))
+    log.debug("I'm next")
+    val costValue = cost match {
+      case Some(c) => c
       case None => throw new IllegalStateException("Node with no cost set can't go next")
     }
+    val f = Future.traverse(neighbours) { n => n ? ProposePrev(costValue, label)}
+    Await.result(f, atMost)
   }
 
   def considerPrev(possiblePrevCost: Long, possiblePrev: Int) {
@@ -99,11 +93,10 @@ class SearchNode(val label: Int) extends Actor {
     }
 
     def setNewPrev() {
-      println("(" + label + ") set new prev: " + possiblePrev)
+      log.debug("set new prev: " + possiblePrev)
       prev = Some(possiblePrev)
       cost = Some(possibleCost)
-      // TODO:
-      // open ! OpenNode(label, possibleCost)
+      open ! OpenNode(label, possibleCost)
     }
   }
 }
@@ -131,25 +124,21 @@ class Nodes extends Actor {
   }
 }
 
+case class OpenNode(label: Int, cost: Long)
+
 case object Dequeue
 
 case object NoNewNodes
-
-case class OpenNode(label: Int, cost: Long)
 
 class Open extends Actor {
   var queue = mutable.PriorityQueue[OpenNode]()(Ordering.by { n: OpenNode => n.cost}.reverse)
 
   def receive = {
     case n: OpenNode =>
-      println("a")
       put(n)
     case Dequeue =>
-      println("n")
       if (queue.isEmpty) sender ! NoNewNodes
       sender ! queue.dequeue
-    case _ =>
-      println("yyyy")
   }
 
   def put(node: OpenNode) = {
@@ -158,26 +147,64 @@ class Open extends Actor {
   }
 }
 
+case object RunAlgorithm
+
+object AstarAlgorithm {
+  val graph = Graph(
+    1 ~> 2 % 1, 1 ~> 3 % 2,
+    2 ~> 5 % 3, 2 ~> 7 % 4,
+    3 ~> 2 % 1, 3 ~> 4 % 4,
+    4 ~> 6 % 2,
+    5 ~> 3 % 3, 5 ~> 7 % 1,
+    6 ~> 5 % 5, 6 ~> 8 % 2, 6 ~> 9 % 1,
+    7 ~> 8 % 3,
+    8 ~> 5 % 1, 8 ~> 9 % 6
+  )
+  val start = 1
+  val goal = 9
+
+  val system = ActorSystem("astar")
+  val nodes = system.actorOf(Props[Nodes], "nodes")
+  val open = system.actorOf(Props[Open], "open")
+}
+
+class AstarAlgorithm extends Actor with ActorLogging {
+
+  import AstarAlgorithm._
+  import Implicit._
+
+  override def preStart() {
+    val a = getNode(start)
+    val f = a ? StartNode
+    Await.result(f, atMost)
+  }
+
+  def receive = {
+    case RunAlgorithm | NodeDone =>
+      open ! Dequeue
+    case OpenNode(`goal`, _) =>
+      log.info("done")
+      system.shutdown()
+    case NoNewNodes =>
+      log.info("no luck with that")
+      system.shutdown()
+    case OpenNode(n, _) =>
+      val a = getNode(n)
+      a ! NextNode
+  }
+
+  def getNode(i: Int): ActorRef = {
+    val f = nodes ? GetNode(i)
+    Await.result(f, atMost).asInstanceOf[ReturnNode].actor
+  }
+}
+
 object ParallelAstar extends App {
 
-  import Commons._
+  import AstarAlgorithm.system
 
-//  var f = nodes ? GetNode(1)
-//  var a = Await.result(f, atMost).asInstanceOf[ReturnNode].actor
-//  a ! Start
-//  a ! YouGoNext
-
-//  Thread.sleep(2000)
-
-  val open = system.actorOf(Props[Nodes], "open")
-
-  open ! OpenNode(1, 0L)
-  // TODO: no reaction?
-
-//  f = open ? Dequeue
-//  var b = Await.result(f, atMost).asInstanceOf[OpenNode]
-//  println(b)
-
-  Thread.sleep(2000)
-  system.shutdown()
+  val a = system.actorOf(Props[AstarAlgorithm], "algorithm")
+  a ! RunAlgorithm
 }
+
+// TODO: logging
