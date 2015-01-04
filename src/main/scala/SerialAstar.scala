@@ -44,15 +44,6 @@ object SerialAstar extends App {
         }
         senderCost + edgeCost
       }
-
-      def newPrev() {
-        println("I am " + label + " and I listen")
-        println("New cost " + newCost)
-
-        prev = Some(sender)
-        cost = Some(newCost)
-        Open.put(label)
-      }
       
       (cost, prev) match {
         case (None, None) =>
@@ -62,21 +53,28 @@ object SerialAstar extends App {
             newPrev()
           }
       }
+
+      def newPrev() {
+        println("I am " + label + " and I listen")
+        println("New cost " + newCost)
+
+        prev = Some(sender)
+        cost = Some(newCost)
+        Open.put(label)
+      }
     }
 
     override val toString = label.toString
   }
 
   object Open {
-    var queue = mutable.PriorityQueue[Int]()(Ordering.by { n: Int => Nodes.get(n).cost}.reverse)
+    val queue = mutable.PriorityQueue[Int]()(Ordering.by { n: Int => Nodes.get(n).cost}.reverse)
 
     def put(label: Int) = if(!contains(label)) queue += label
 
     def dequeue(): SearchNode = Nodes.get(queue.dequeue())
 
     def contains(label: Int): Boolean = queue.exists(i => i == label)
-
-    def remove(label: Int) = queue = queue.filterNot(i => i == label)
 
     def empty(): Boolean = queue.isEmpty
   }
