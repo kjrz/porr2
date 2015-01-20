@@ -7,12 +7,11 @@ import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.language.postfixOps
 import scalax.collection.Graph
-import scalax.collection.GraphPredef._
-import scalax.collection.edge.Implicits._
+import scalax.collection.edge.WDiEdge
 
 object Implicit {
-  val atMost = 5 seconds
-  implicit val timeout = Timeout(5 seconds)
+  val atMost = 30 seconds
+  implicit val timeout = Timeout(30 seconds)
   implicit val ec = ExecutionContext.Implicits.global
 }
 
@@ -25,10 +24,10 @@ case class ProposePrev(cost: Long, prev: Int)
 case object NodeDone
 
 object SearchNode {
-  def props(label: Int) = Props(new SearchNode(label))
+  def props(label: Int, graph: Graph[Int, WDiEdge]) = Props(new SearchNode(label, graph))
 }
 
-class SearchNode(val label: Int) extends Actor with ActorLogging {
+class SearchNode(val label: Int, val graph: Graph[Int, WDiEdge]) extends Actor with ActorLogging {
 
   import AstarAlgorithm._
   import Implicit._
@@ -119,7 +118,8 @@ class Nodes extends Actor {
     try {
       Await.result(f, atMost)
     } catch {
-      case _: ActorNotFound => context.actorOf(SearchNode.props(n), n.toString)
+      case _: ActorNotFound => context.actorOf(
+        SearchNode.props(n, AstarAlgorithm.graph), n.toString)
     }
   }
 }
@@ -149,29 +149,45 @@ class Open extends Actor {
 
 case object RunAlgorithm
 
-object AstarAlgorithm {
-  val graph = Graph(
-    1 ~> 2 % 1, 1 ~> 3 % 2,
-    2 ~> 5 % 3, 2 ~> 7 % 4,
-    3 ~> 2 % 1, 3 ~> 4 % 4,
-    4 ~> 6 % 2,
-    5 ~> 3 % 3, 5 ~> 7 % 1,
-    6 ~> 5 % 5, 6 ~> 8 % 2, 6 ~> 9 % 1,
-    7 ~> 8 % 3,
-    8 ~> 5 % 1, 8 ~> 9 % 6
-  )
-  val start = 1
-  val goal = 9
+case class Stats(timeElapsed: Long)
 
-  val system = ActorSystem("astar")
-  val nodes = system.actorOf(Props[Nodes], "nodes")
-  val open = system.actorOf(Props[Open], "open")
+object AstarAlgorithm {
+
+  import Implicit._
+
+  val start = 1
+
+  var graph: Graph[Int, WDiEdge] = RandomGraph.tinyGraph
+  var goal: Int = 9
+
+  var system = ActorSystem("astar")
+  var open = system.actorOf(Props[Open], "open")
+  var nodes = system.actorOf(Props[Nodes], "nodes")
+
+  var startTime = 0L
+  var endTime = 0L
+
+  def reload(g: Graph[Int, WDiEdge]): Stats = {
+    system.shutdown()
+    graph = g
+    goal = g.order
+    system = ActorSystem("astar")
+    open = system.actorOf(Props[Open], "open")
+    nodes = system.actorOf(Props[Nodes], "nodes")
+    val a = AstarAlgorithm.system.actorOf(props(goal), "algorithm")
+    val f = a ? RunAlgorithm
+    Await.result(f, atMost).asInstanceOf[Stats]
+  }
+
+  def props(goal: Int) = Props(new AstarAlgorithm(goal))
 }
 
-class AstarAlgorithm extends Actor with ActorLogging {
+class AstarAlgorithm(val goal: Int) extends Actor with ActorLogging {
 
   import AstarAlgorithm._
   import Implicit._
+
+  var master: ActorRef = null
 
   override def preStart() {
     val a = getNode(start)
@@ -180,10 +196,16 @@ class AstarAlgorithm extends Actor with ActorLogging {
   }
 
   def receive = {
-    case RunAlgorithm | NodeDone =>
+    case RunAlgorithm =>
+      startTime = System.nanoTime()
+      open ! Dequeue
+      master = sender()
+    case NodeDone =>
       open ! Dequeue
     case OpenNode(`goal`, _) =>
+      endTime = System.nanoTime()
       log.info("done")
+      master ! Stats(endTime - startTime)
       system.shutdown()
     case NoNewNodes =>
       log.info("no luck with that")
@@ -201,10 +223,10 @@ class AstarAlgorithm extends Actor with ActorLogging {
 
 object ParallelAstar extends App {
 
-  import AstarAlgorithm.system
+  //  import AstarAlgorithm._
 
-  val a = system.actorOf(Props[AstarAlgorithm], "algorithm")
-  a ! RunAlgorithm
+  //  import Implicit._
+
+  val s = AstarAlgorithm.reload(RandomGraph.randomGraph(100, 10, 10))
+  println("time elapsed = " + s.timeElapsed)
 }
-
-// TODO: logging

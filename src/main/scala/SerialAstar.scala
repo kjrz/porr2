@@ -1,35 +1,27 @@
 import scala.collection.mutable
 import scalax.collection.Graph
-import scalax.collection.GraphPredef._
-import scalax.collection.edge.Implicits._
+import scalax.collection.edge.WDiEdge
 
 object SerialAstar extends App {
 
-  val graph = Graph(
-    1 ~> 2 % 1, 1 ~> 3 % 2,
-    2 ~> 5 % 3, 2 ~> 7 % 4,
-    3 ~> 2 % 1, 3 ~> 4 % 4,
-    4 ~> 6 % 2,
-    5 ~> 3 % 3, 5 ~> 7 % 1,
-    6 ~> 5 % 5, 6 ~> 8 % 2, 6 ~> 9 % 1,
-    7 ~> 8 % 3,
-    8 ~> 5 % 1, 8 ~> 9 % 6
-  )
+  val start: Int = 1
+
+  var graph: Graph[Int, WDiEdge] = RandomGraph.tinyGraph
+  var goal = graph.order
 
   object Nodes {
     val dict = mutable.Map[Int, SearchNode]()
 
-    def get(label: Int): SearchNode = dict.getOrElseUpdate(label, new SearchNode(label))
+    def get(label: Int): SearchNode = dict.getOrElseUpdate(label, new SearchNode(label, graph))
+
+    def clear() = dict.clear()
   }
 
-  class SearchNode(val label: Int) {
-    val node = graph.get(label)
+  class SearchNode(val label: Int, val graph: Graph[Int, WDiEdge]) {
     var prev: Option[SearchNode] = None
     var cost: Option[Long] = None
 
     def talkToNeighbours() {
-      println("I am " + label + " and I talk")
-
       graph.get(label).diSuccessors.foreach(
         n => Nodes.get(n).listenToNeighbour(this))
     }
@@ -39,12 +31,14 @@ object SerialAstar extends App {
         val senderCost: Long = sender.cost match {
           case Some(c) => c
         }
-        val edgeCost: Long = sender.node.findOutgoingTo(node) match {
-          case Some(e) => e.weight
-        }
+        val edgeCost: Long =
+          graph.get(sender.label).findOutgoingTo(graph.get(label)) match {
+            case Some(e) => e.weight
+            case None => throw new IllegalStateException("No edge")
+          }
         senderCost + edgeCost
       }
-      
+
       (cost, prev) match {
         case (None, None) =>
           newPrev()
@@ -55,8 +49,8 @@ object SerialAstar extends App {
       }
 
       def newPrev() {
-        println("I am " + label + " and I listen")
-        println("New cost " + newCost)
+//        println("I am " + label + " and I listen")
+//        println("New cost " + newCost)
 
         prev = Some(sender)
         cost = Some(newCost)
@@ -70,13 +64,15 @@ object SerialAstar extends App {
   object Open {
     val queue = mutable.PriorityQueue[Int]()(Ordering.by { n: Int => Nodes.get(n).cost}.reverse)
 
-    def put(label: Int) = if(!contains(label)) queue += label
+    def put(label: Int) = if (!contains(label)) queue += label
 
     def dequeue(): SearchNode = Nodes.get(queue.dequeue())
 
     def contains(label: Int): Boolean = queue.exists(i => i == label)
 
     def empty(): Boolean = queue.isEmpty
+
+    def clear() = queue.clear()
   }
 
   def search(next: SearchNode) {
@@ -107,12 +103,22 @@ object SerialAstar extends App {
     }
   }
 
-  val start = 1
-  val goal = 9
+  def reload(g: Graph[Int, WDiEdge]): Stats = {
+    graph = g
+    goal = graph.order
 
-  Nodes.get(start).cost = Some(0)
-  Open.put(start)
+    Nodes.clear()
+    Open.clear()
 
-  search(Open.dequeue())
-  read(goal)
+    Nodes.get(1).cost = Some(0)
+    Open.put(1)
+
+    val startTime = System.nanoTime()
+
+    search(Open.dequeue())
+
+    val endTime = System.nanoTime()
+
+    Stats(endTime - startTime)
+  }
 }
