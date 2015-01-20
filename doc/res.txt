@@ -1,0 +1,46 @@
+
+order = 100, edgeRange = 20, maxWeight = 10
+s. 61
+p. 669
+r. 10
+
+(order = 100, edgeRange = 100, maxWeight = 10)
+s. 116
+p. 1127
+r. 9
+
+(order = 300, edgeRange = 50, maxWeight = 10)
+s. 223
+p. 2583
+r. 11
+
+(order = 300, edgeRange = 100, maxWeight = 10)
+s. 268
+p. 2675
+r. 9
+
+(order = 500, edgeRange = 50, maxWeight = 50)
+s. 311
+p. 3022
+r. 9
+
+(order = 500, edgeRange = 100, maxWeight = 50)
+s. 310
+p. 3236
+r. 10
+
+(order = 500, edgeRange = 400, maxWeight = 10)
+s. 364
+p. 4204
+r. 11
+
+(order = 1000, edgeRange = 200, maxWeight = 10)
+s. 446
+p. 6176
+r. 13
+
+(order = 1000, edgeRange = 400, maxWeight = 10)
+s. 555
+p. 8896
+r. 16
+
