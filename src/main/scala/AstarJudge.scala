@@ -1,6 +1,6 @@
 
 object AstarJudge extends App {
-  val g = RandomGraph.randomGraph(order = 300, edgeRange = 50, maxWeight = 10)
+  val g = RandomGraph.randomGraph(order = 100, edgeRange = 10, maxWeight = 10)
 
   val timeS = SerialAstar.reload(g)
   val timeP = AstarAlgorithm.reload(g)
